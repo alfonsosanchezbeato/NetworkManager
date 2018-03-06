@@ -7672,12 +7672,161 @@ dhcp6_prefix_delegated (NMDhcpClient *client,
 	g_signal_emit (self, signals[IP6_PREFIX_DELEGATED], 0, prefix);
 }
 
+static GBytes *
+generate_duid_ll (GBytes *hwaddr)
+{
+	GByteArray *duid_arr;
+	guint16 t_field = g_htons (3);
+
+	duid_arr = g_byte_array_sized_new (2 + 2 + ETH_ALEN);
+
+	/* TYPE */
+	g_byte_array_append (duid_arr, (const guint8 *) &t_field, 2);
+
+	/* HW ADDRESS */
+	t_field = htons (ARPHRD_ETHER);
+	g_byte_array_append (duid_arr, (const guint8 *) &t_field, 2);
+	g_byte_array_append (duid_arr, g_bytes_get_data (hwaddr, NULL), ETH_ALEN);
+
+	return g_byte_array_free_to_bytes (duid_arr);
+}
+
+static GBytes *
+generate_duid_llt (GBytes *hwaddr, gboolean current_time)
+{
+	GByteArray *duid_arr;
+	guint16 t_field = g_htons (1);
+	GDateTime *epoch, *now = NULL;
+	guint32 time;
+
+	duid_arr = g_byte_array_sized_new (2 + 4 + 2 + ETH_ALEN);
+
+	/* TYPE */
+	g_byte_array_append (duid_arr, (const guint8 *) &t_field, 2);
+
+	/* HW TYPE */
+	t_field = htons (ARPHRD_ETHER);
+	g_byte_array_append (duid_arr, (const guint8 *) &t_field, 2);
+
+	/* TIME */
+	epoch = g_date_time_new_utc (2000, 1, 1, 0, 0, 0);
+	/* Allow to pick a stable date for generating stable global DUIDs */
+	if (!current_time) {
+		GFile *sk_file;
+		GFileInfo *sk_info;
+		guint64 sk_mtime;
+
+		if (!g_file_test (NMSTATEDIR "/secret_key", G_FILE_TEST_EXISTS)) {
+			gs_free guint8 *data = NULL;
+			gsize data_len;
+
+			/* secret_key is not there yet, trigger generation */
+			data = nm_utils_secret_key_read (&data_len, NULL);
+		}
+		sk_file = g_file_new_for_path (NMSTATEDIR "/secret_key");
+		sk_info = g_file_query_info (sk_file,
+		                             G_FILE_ATTRIBUTE_TIME_MODIFIED,
+		                             G_FILE_QUERY_INFO_NONE,
+		                             NULL,
+		                             NULL);
+		sk_mtime = g_file_info_get_attribute_uint64 (sk_info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
+		if (!sk_mtime) {
+			/* fallback to current_time */
+			current_time = true;
+		} else
+			now = g_date_time_new_from_unix_utc ((gint64) sk_mtime);
+		g_object_unref (sk_file);
+		g_object_unref (sk_info);
+	}
+
+	if (!now)
+		now = g_date_time_new_now_utc ();
+
+	time = htonl ((g_date_time_difference (now, epoch) / 1000000) % G_MAXUINT32);
+	g_date_time_unref (epoch);
+	g_date_time_unref (now);
+
+	g_byte_array_append (duid_arr, (const guint8 *) &time, 4);
+
+	/* HW ADDRESS */
+	g_byte_array_append (duid_arr, g_bytes_get_data (hwaddr, NULL), ETH_ALEN);
+
+	return g_byte_array_free_to_bytes (duid_arr);
+}
+
+static GBytes *
+dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcpDuidEnforce *out_enforce)
+{
+	NMSettingIPConfig *s_ip6;
+	const char *duid;
+	const char *duid_type = NULL;
+	gs_free char *duid_default = NULL;
+	gs_strfreev char **duid_items = NULL;
+	char **next_item = NULL;
+	gboolean lease_first = false;
+
+	NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_NEVER);
+
+	s_ip6 = nm_connection_get_setting_ip6_config (connection);
+	duid = nm_setting_ip6_config_get_dhcp_duid (NM_SETTING_IP6_CONFIG (s_ip6));
+
+	if (!duid) {
+		duid_default = nm_config_data_get_connection_default (NM_CONFIG_GET_DATA,
+		                                                      "ipv6.dhcp-duid", self);
+		duid = duid_default;
+	}
+
+	if (!_nm_utils_dhcp_duid_valid (duid)) {
+		if (duid)
+			_LOGD (LOGD_IP6, "DUID gen: duid '%s' is invalid, fallback to 'lease'", duid);
+		duid = "lease";
+	}
+
+	if (nm_streq (duid, "lease"))
+		return NULL;
+
+	duid_items = g_strsplit (duid, "-", -1);
+	for (next_item = duid_items; *next_item != NULL; next_item++) {
+		if (nm_streq (*next_item, "lease"))
+			lease_first = true;
+		else
+			duid_type = *next_item;
+	}
+
+	if (NM_IN_STRSET (duid_type, "ll", "llt")) {
+		if (!hwaddr) {
+			_LOGD (LOGD_IP6, "DUID gen: hw address missing");
+			return NULL;
+		}
+
+		if (g_bytes_get_size (hwaddr) != ETH_ALEN) {
+			_LOGD (LOGD_IP6, "DUID gen: unsupported hw address");
+			return NULL;
+		}
+	}
+
+	if (lease_first)
+		NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_LEASE_FALLBACK);
+	else
+		NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_ALWAYS);
+
+	if (nm_streq0 (duid_type, "llt"))
+		return generate_duid_llt (hwaddr, lease_first);
+	if (nm_streq0 (duid_type, "ll"))
+		return generate_duid_ll (hwaddr);
+
+	return nm_utils_hexstr2bin (duid);
+}
+
 static gboolean
 dhcp6_start_with_link_ready (NMDevice *self, NMConnection *connection)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 	NMSettingIPConfig *s_ip6;
 	gs_unref_bytes GBytes *hwaddr = NULL;
+	gs_unref_bytes GBytes *duid = NULL;
+	NMDhcpDuidEnforce enforce_duid;
+
 	const NMPlatformIP6Address *ll_addr = NULL;
 
 	g_assert (connection);
@@ -7698,6 +7847,7 @@ dhcp6_start_with_link_ready (NMDevice *self, NMConnection *connection)
 	hwaddr = nm_platform_link_get_address_as_bytes (nm_device_get_platform (self),
 	                                                nm_device_get_ip_ifindex (self));
 
+	duid = dhcp6_get_duid (self, connection, hwaddr, &enforce_duid);
 	priv->dhcp6.client = nm_dhcp_manager_start_ip6 (nm_dhcp_manager_get (),
 	                                                nm_device_get_multi_index (self),
 	                                                nm_device_get_ip_iface (self),
@@ -7709,6 +7859,8 @@ dhcp6_start_with_link_ready (NMDevice *self, NMConnection *connection)
 	                                                nm_device_get_route_metric (self, AF_INET6),
 	                                                nm_setting_ip_config_get_dhcp_send_hostname (s_ip6),
 	                                                nm_setting_ip_config_get_dhcp_hostname (s_ip6),
+	                                                duid,
+	                                                enforce_duid,
 	                                                get_dhcp_timeout (self, AF_INET6),
 	                                                priv->dhcp_anycast_address,
 	                                                (priv->dhcp6.mode == NM_NDISC_DHCP_LEVEL_OTHERCONF) ? TRUE : FALSE,

@@ -196,4 +196,5 @@ _nm_utils_json_append_gvalue (char **conf,
 	_nm_utils_team_config_set (conf, key.key1, key.key2, key.key3, val);
 }
 
+
 #endif

@@ -4435,6 +4435,76 @@ _nm_utils_inet6_is_token (const struct in6_addr *in6addr)
 }
 
 /**
+ * _nm_utils_dhcp_duid_valid:
+ * @duid: the candidate DUID
+ *
+ * Checks if @duid string contains either a special duid value ("ll",
+ * "llt" or "lease") or a valid hex DUID.
+ *
+ * Return value: %TRUE or %FALSE
+ */
+gboolean
+_nm_utils_dhcp_duid_valid (const char *duid)
+{
+#define DUID_MIN_OCTECTS   2
+#define DUID_MAX_OCTECTS 130
+	gs_strfreev gchar **split = NULL;
+	gchar **iter;
+	gboolean has_lease = false;
+	gboolean has_specialkey = false;
+	gboolean is_custom_duid = false;
+	int duid_len;
+	int duid_hex_min = DUID_MIN_OCTECTS * 2;
+	int duid_hex_max = DUID_MAX_OCTECTS * 2;
+	gboolean has_comma = FALSE;
+	gs_unref_object GBytes *duid_bin = NULL;
+
+	if (!duid)
+		return FALSE;
+
+	split = g_strsplit (duid, "-", -1);
+	for (iter = split; *iter != NULL; iter++) {
+		if (nm_streq (*iter, "lease")) {
+			if (has_lease || is_custom_duid)
+				return FALSE;
+			has_lease = true;
+		} else if (NM_IN_STRSET (*iter, "ll", "llt")) {
+			if (has_specialkey || is_custom_duid)
+				return FALSE;
+			has_specialkey = true;
+		} else {
+			if (has_specialkey || has_lease || is_custom_duid)
+				return FALSE;
+			is_custom_duid = true;
+		}
+	}
+
+	if (has_specialkey || has_lease)
+		return TRUE;
+
+	duid_len = strlen (duid);
+
+	if (duid_len > 2 && duid[2] == ':')
+		has_comma = TRUE;
+
+	/* MAX DUID lenght is 128 octects + the type code (2 octects).
+	 * We expect hex notation and optional comma for every octect. */
+	if (has_comma) {
+		duid_hex_min += DUID_MIN_OCTECTS - 1;
+		duid_hex_max += DUID_MAX_OCTECTS - 1;
+	}
+	if (   duid_len < duid_hex_min
+	    || duid_len > duid_hex_max)
+			return FALSE;
+
+	duid_bin = nm_utils_hexstr2bin (duid);
+	if (!duid_bin)
+		return FALSE;
+
+	return TRUE;
+}
+
+/**
  * nm_utils_check_virtual_device_compatibility:
  * @virtual_type: a virtual connection type
  * @other_type: a connection type to test against @virtual_type
