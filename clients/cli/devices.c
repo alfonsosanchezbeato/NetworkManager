@@ -1455,6 +1455,7 @@ show_device_info (NMDevice *device, NmCli *nmc)
 			nmc_print (&nmc->nmc_config,
 			           (gpointer[]) { device, NULL },
 			           NULL,
+			           NULL,
 			           NMC_META_GENERIC_GROUP ("GENERAL", metagen_device_detail_general, N_("GROUP")),
 			           f,
 			           NULL);
@@ -1467,6 +1468,7 @@ show_device_info (NMDevice *device, NmCli *nmc)
 
 			nmc_print (&nmc->nmc_config,
 			           (gpointer[]) { device, NULL },
+			           NULL,
 			           NULL,
 			           NMC_META_GENERIC_GROUP ("CAPABILITIES", metagen_device_detail_capabilities, N_("GROUP")),
 			           f,
@@ -1481,6 +1483,7 @@ show_device_info (NMDevice *device, NmCli *nmc)
 
 				nmc_print (&nmc->nmc_config,
 				           (gpointer[]) { device, NULL },
+				           NULL,
 				           NULL,
 				           NMC_META_GENERIC_GROUP ("WIFI-PROPERTIES", metagen_device_detail_wifi_properties, N_("GROUP")),
 				           f,
@@ -1538,6 +1541,7 @@ show_device_info (NMDevice *device, NmCli *nmc)
 
 				nmc_print (&nmc->nmc_config,
 				           (gpointer[]) { device, NULL },
+				           NULL,
 				           NULL,
 				           NMC_META_GENERIC_GROUP ("WIRED-PROPERTIES", metagen_device_detail_wired_properties, N_("GROUP")),
 				           f,
@@ -1640,6 +1644,7 @@ show_device_info (NMDevice *device, NmCli *nmc)
 			nmc_print (&nmc->nmc_config,
 			           (gpointer[]) { device, NULL },
 			           NULL,
+			           NULL,
 			           NMC_META_GENERIC_GROUP ("CONNECTIONS", metagen_device_detail_connections, N_("GROUP")),
 			           f,
 			           NULL);
@@ -1698,6 +1703,7 @@ do_devices_status (NmCli *nmc, int argc, char **argv)
 
 	if (!nmc_print (&nmc->nmc_config,
 	                (gpointer *) devices,
+	                NULL,
 	                N_("Status of devices"),
 	                (const NMMetaAbstractInfo *const*) metagen_device_status,
 	                fields_str,
