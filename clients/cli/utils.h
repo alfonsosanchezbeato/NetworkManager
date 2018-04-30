@@ -222,6 +222,24 @@ typedef enum {
 	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_WIFI_PROPERTIES_5GHZ,
 	_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_WIFI_PROPERTIES_NUM,
 
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_SSID = 0,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_SSID_HEX,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_BSSID,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_MODE,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_CHAN,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_FREQ,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_RATE,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_SIGNAL,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_BARS,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_SECURITY,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_WPA_FLAGS,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_RSN_FLAGS,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_DEVICE,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_ACTIVE,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_IN_USE,
+	NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_DBUS_PATH,
+	_NMC_GENERIC_INFO_TYPE_DEVICE_DETAIL_AP_NUM,
+
 } NmcGenericInfoType;
 
 #define NMC_HANDLE_COLOR(color) \
@@ -253,6 +271,11 @@ struct _NmcMetaGenericInfo {
 	gpointer *out_to_free
 
 	gconstpointer (*get_fcn) (NMC_META_GENERIC_INFO_GET_FCN_ARGS);
+
+	/* Some types behave rather different when being printed by nmc_print().
+	 * How exactly? Well... it's complicated. *sigh*
+	 */
+	bool is_deep_nested:1;
 
 	/* @common_priority is used for implementing nm_meta_abstract_info_included_in_common().
 	 *
@@ -290,9 +313,12 @@ struct _NmcMetaGenericInfo {
 #define NMC_META_GENERIC_WITH_NESTED(n, nest, ...) \
 	NMC_META_GENERIC (n, .nested = (nest), __VA_ARGS__)
 
-#define NMC_META_GENERIC_GROUP(_group_name, _nested, _name_header) \
+#define NMC_META_GENERIC_GROUP(_group_name, _nested, _name_header, ...) \
 	((const NMMetaAbstractInfo *const*) ((const NmcMetaGenericInfo *const[]) { \
-		NMC_META_GENERIC_WITH_NESTED (_group_name,_nested, .name_header = _name_header), \
+		NMC_META_GENERIC_WITH_NESTED (_group_name, \
+		                              _nested, \
+		                              .name_header = _name_header, \
+		                              ##__VA_ARGS__), \
 		NULL, \
 	}))
 
