@@ -850,10 +850,12 @@ nm_setting_ip6_config_class_init (NMSettingIP6ConfigClass *ip6_class)
 	 * a stable DUID-LLT, the time field will contain a static time value that will be
 	 * common to all the connections.
 	 *
-	 * The special values "lease-llt" and "lease-ll" will first try to pick the DUID from
-	 * the lease file of the connection. If not available, a new one will be generated like
-	 * in "llt" and "ll" with the only exception of the value for the time field for the "llt"
-	 * one: the actual generation time will be used.
+	 * The special value "uuid" will generate a DUID-UUID unique to the connection.
+	 *
+	 * The special values "lease-llt", "lease-ll" and "lease-uuid" will try to pick the DUID
+	 * from the lease file of the connection. If not available, a new DUID will be generated
+	 * like in the "llt", "ll" and "uuid" methods. The only exception is the value for the time
+	 * field for the "llt" method: the actual generation time will be used.
 	 *
 	 * If the property is unset, the value defaults to "lease".
 	 *

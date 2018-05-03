@@ -4468,7 +4468,7 @@ _nm_utils_dhcp_duid_valid (const char *duid)
 			if (has_lease || is_custom_duid)
 				return FALSE;
 			has_lease = true;
-		} else if (NM_IN_STRSET (*iter, "ll", "llt")) {
+		} else if (NM_IN_STRSET (*iter, "ll", "llt", "uuid")) {
 			if (has_specialkey || is_custom_duid)
 				return FALSE;
 			has_specialkey = true;

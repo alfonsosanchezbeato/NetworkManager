@@ -37,8 +37,10 @@
 #include <linux/if_arp.h>
 #include <linux/rtnetlink.h>
 #include <linux/pkt_sched.h>
+#include <uuid/uuid.h>
 
 #include "nm-utils/nm-dedup-multi.h"
+#include "nm-utils/nm-random-utils.h"
 
 #include "nm-common-macros.h"
 #include "nm-device-private.h"
@@ -7755,6 +7757,45 @@ generate_duid_llt (GBytes *hwaddr, gboolean current_time)
 }
 
 static GBytes *
+generate_duid_uuid (const guchar *data)
+{
+	const guint16 duid_type = g_htons (4);
+	GChecksum *sum;
+	guint8 digest[32];
+	gsize len = sizeof (digest);
+	const int DUID_SIZE = 18;
+	guint8 *duid_buffer;
+
+	nm_assert (data);
+
+	sum = g_checksum_new (G_CHECKSUM_SHA256);
+	if (!sum)
+		return NULL;
+
+	g_checksum_update (sum, data, sizeof (data));
+	g_checksum_get_digest (sum, digest, &len);
+	g_checksum_free (sum);
+
+	/* Generate a DHCP Unique Identifier for DHCPv6 using the
+	 * DUID-UUID method (see RFC 6355 section 4).  Format is:
+	 *
+	 * u16: type (DUID-UUID = 4)
+	 * u8[16]: UUID bytes
+	 */
+	duid_buffer = g_malloc (DUID_SIZE);
+
+	G_STATIC_ASSERT_EXPR (sizeof (duid_type) == 2);
+	memcpy (&duid_buffer[0], &duid_type, 2);
+
+	/* Since SHA256 is 256 bits, but UUID is 128 bits, we just take the first
+	 * 128 bits of the SHA256 as the DUID-UUID.
+	 */
+	memcpy (&duid_buffer[2], digest, 16);
+
+	return g_bytes_new_take (duid_buffer, DUID_SIZE);
+}
+
+static GBytes *
 dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcpDuidEnforce *out_enforce)
 {
 	NMSettingIPConfig *s_ip6;
@@ -7814,6 +7855,17 @@ dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcp
 		return generate_duid_llt (hwaddr, lease_first);
 	if (nm_streq0 (duid_type, "ll"))
 		return generate_duid_ll (hwaddr);
+	if (nm_streq0 (duid_type, "uuid")) {
+		NMUtilsStableType stable_type;
+		const char *stable_id;
+
+		stable_id = _get_stable_id (self, connection, &stable_type);
+		if (!stable_id) {
+			_LOGW (LOGD_IP6, "DUID gen: cannot retrieve the stable ID");
+			return NULL;
+		}
+		return generate_duid_uuid ((const guchar *) stable_id);
+	}
 
 	return nm_utils_hexstr2bin (duid);
 }
