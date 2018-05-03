@@ -7796,6 +7796,19 @@ generate_duid_uuid (const guchar *data)
 }
 
 static GBytes *
+generate_duid_from_machine_id (void)
+{
+	uuid_t uuid;
+	gs_free const char *machine_id_s = NULL;
+
+	machine_id_s = nm_utils_machine_id_read ();
+	if (!nm_utils_machine_id_parse (machine_id_s, uuid))
+		nm_utils_random_bytes (uuid, sizeof (uuid));
+
+	return generate_duid_uuid (uuid);
+}
+
+static GBytes *
 dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcpDuidEnforce *out_enforce)
 {
 	NMSettingIPConfig *s_ip6;
@@ -7805,8 +7818,9 @@ dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcp
 	gs_strfreev char **duid_items = NULL;
 	char **next_item = NULL;
 	gboolean lease_first = false;
+	NMDhcpDuidEnforce duid_enforce = NM_DHCP_DUID_ENFORCE_NEVER;
+	GBytes *duid_out = NULL;
 
-	NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_NEVER);
 
 	s_ip6 = nm_connection_get_setting_ip6_config (connection);
 	duid = nm_setting_ip6_config_get_dhcp_duid (NM_SETTING_IP6_CONFIG (s_ip6));
@@ -7824,7 +7838,7 @@ dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcp
 	}
 
 	if (nm_streq (duid, "lease"))
-		return NULL;
+		goto end;
 
 	duid_items = g_strsplit (duid, "-", -1);
 	for (next_item = duid_items; *next_item != NULL; next_item++) {
@@ -7837,37 +7851,47 @@ dhcp6_get_duid (NMDevice *self, NMConnection *connection, GBytes *hwaddr, NMDhcp
 	if (NM_IN_STRSET (duid_type, "ll", "llt")) {
 		if (!hwaddr) {
 			_LOGD (LOGD_IP6, "DUID gen: hw address missing");
-			return NULL;
+			goto end;
 		}
 
 		if (g_bytes_get_size (hwaddr) != ETH_ALEN) {
 			_LOGD (LOGD_IP6, "DUID gen: unsupported hw address");
-			return NULL;
+			goto end;
 		}
 	}
 
 	if (lease_first)
-		NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_LEASE_FALLBACK);
+		duid_enforce = NM_DHCP_DUID_ENFORCE_LEASE_FALLBACK;
 	else
-		NM_SET_OUT (out_enforce, NM_DHCP_DUID_ENFORCE_ALWAYS);
+		duid_enforce = NM_DHCP_DUID_ENFORCE_ALWAYS;
 
 	if (nm_streq0 (duid_type, "llt"))
-		return generate_duid_llt (hwaddr, lease_first);
-	if (nm_streq0 (duid_type, "ll"))
-		return generate_duid_ll (hwaddr);
-	if (nm_streq0 (duid_type, "uuid")) {
+		duid_out = generate_duid_llt (hwaddr, lease_first);
+	else if (nm_streq0 (duid_type, "ll"))
+		duid_out = generate_duid_ll (hwaddr);
+	else if (nm_streq0 (duid_type, "uuid")) {
 		NMUtilsStableType stable_type;
 		const char *stable_id;
 
 		stable_id = _get_stable_id (self, connection, &stable_type);
 		if (!stable_id) {
 			_LOGW (LOGD_IP6, "DUID gen: cannot retrieve the stable ID");
-			return NULL;
+			goto end;
 		}
-		return generate_duid_uuid ((const guchar *) stable_id);
+		duid_out = generate_duid_uuid ((const guchar *) stable_id);
+	} else {
+		duid_out = nm_utils_hexstr2bin (duid);
 	}
 
-	return nm_utils_hexstr2bin (duid);
+end:
+	if (!duid_out)
+		duid_out = generate_duid_from_machine_id ();
+
+	_LOGD (LOGD_IP6, "DUID gen: '%s' (%s)",
+	                 nm_dhcp_utils_duid_to_string (duid_out),
+	                 (duid_enforce == NM_DHCP_DUID_ENFORCE_ALWAYS) ? "enforcing" : "fallback");
+	NM_SET_OUT (out_enforce, duid_enforce);
+	return duid_out;
 }
 
 static gboolean
