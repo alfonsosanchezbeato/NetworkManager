@@ -6829,11 +6829,12 @@ dhcp4_grace_period_expired (gpointer user_data)
 }
 
 static void
-dhcp4_fail (NMDevice *self, gboolean timeout)
+dhcp4_fail (NMDevice *self)
 {
 	NMDevicePrivate *priv = NM_DEVICE_GET_PRIVATE (self);
 
-	_LOGD (LOGD_DHCP4, "DHCPv4 failed%s", timeout ? " (timeout)" : "");
+	_LOGE (LOGD_DHCP4,
+	       "DHCPv4 failed ip_state %s", _ip_state_to_string (priv->ip4_state));
 
 	/* Keep client running if there are static addresses configured
 	 * on the interface.
@@ -6847,7 +6848,7 @@ dhcp4_fail (NMDevice *self, gboolean timeout)
 	 * configuration.
 	 */
 	if (   !priv->dhcp4.was_active
-	    && (timeout || priv->ip4_state == IP_CONF)) {
+	    && priv->ip4_state == IP_CONF) {
 		dhcp4_cleanup (self, CLEANUP_TYPE_DECONFIGURE, FALSE);
 		nm_device_activate_schedule_ip4_config_timeout (self);
 		return;
@@ -6910,7 +6911,7 @@ dhcp4_state_changed (NMDhcpClient *client,
 	case NM_DHCP_STATE_BOUND:
 		if (!ip4_config) {
 			_LOGW (LOGD_DHCP4, "failed to get IPv4 config in response to DHCP event.");
-			dhcp4_fail (self, FALSE);
+			dhcp4_fail (self);
 			break;
 		}
 
@@ -6949,11 +6950,11 @@ dhcp4_state_changed (NMDhcpClient *client,
 			if (dhcp4_lease_change (self, ip4_config))
 				nm_device_update_metered (self);
 			else
-				dhcp4_fail (self, FALSE);
+				dhcp4_fail (self);
 		}
 		break;
 	case NM_DHCP_STATE_TIMEOUT:
-		dhcp4_fail (self, TRUE);
+		dhcp4_fail (self);
 		break;
 	case NM_DHCP_STATE_EXPIRE:
 		/* Ignore expiry before we even have a lease (NAK, old lease, etc) */
@@ -6962,7 +6963,7 @@ dhcp4_state_changed (NMDhcpClient *client,
 		/* fall through */
 	case NM_DHCP_STATE_DONE:
 	case NM_DHCP_STATE_FAIL:
-		dhcp4_fail (self, FALSE);
+		dhcp4_fail (self);
 		break;
 	default:
 		break;
@@ -7111,6 +7112,8 @@ dhcp4_start (NMDevice *self)
 	connection = nm_device_get_applied_connection (self);
 	g_return_val_if_fail (connection, FALSE);
 
+	_LOGE (LOGD_CORE, "dhcp4 start: ip state %s", _ip_state_to_string (priv->ip4_state));
+
 	s_ip4 = nm_connection_get_setting_ip4_config (connection);
 
 	/* Clear old exported DHCP options */
@@ -7163,7 +7166,7 @@ nm_device_dhcp4_renew (NMDevice *self, gboolean release)
 
 	g_return_val_if_fail (priv->dhcp4.client != NULL, FALSE);
 
-	_LOGI (LOGD_DHCP4, "DHCPv4 lease renewal requested");
+	_LOGI (LOGD_DHCP4, "DHCPv4 lease renewal requested: ip state %s", _ip_state_to_string (priv->ip4_state));
 
 	/* Terminate old DHCP instance and release the old lease */
 	dhcp4_cleanup (self, CLEANUP_TYPE_DECONFIGURE, release);
