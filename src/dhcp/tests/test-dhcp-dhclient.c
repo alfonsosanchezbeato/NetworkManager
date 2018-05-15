@@ -815,9 +815,9 @@ static void
 test_write_existing_commented_duid (void)
 {
 #define ORIG_CONTENTS "#default-duid \"\\000\\001\\000\\001\\027X\\350X\\000#\\025\\010~\\254\";\n"
-	const char *expected_contents = \
-		"default-duid \"" DUID "\";\n"
-		ORIG_CONTENTS;
+	const char *expected_contents =
+	    "default-duid \"" DUID "\";\n"
+	    ORIG_CONTENTS;
 	GError *error = NULL;
 	char *contents = NULL;
 	gboolean success;
@@ -848,33 +848,25 @@ static void
 test_write_existing_multiline_duid (void)
 {
 #define ORIG_CONTENTS "### Commented old DUID ###\n" \
-	                      "#default-duid \"\\000\\001\\000\\001\\027X\\350X\\000#\\025\\010~\\254\";\n"
+                      "#default-duid \"\\000\\001\\000\\001\\027X\\350X\\000#\\025\\010~\\254\";\n"
 	const char *expected_contents = \
-		"default-duid \"" DUID "\";\n"
-		ORIG_CONTENTS;
+	    "default-duid \"" DUID "\";\n"
+	    ORIG_CONTENTS;
 	GError *error = NULL;
-	char *contents = NULL;
+	gs_free char *contents = NULL;
 	gboolean success;
-	const char *path = "test-dhclient-write-existing-multiline-duid.leases";
+	nmtst_auto_unlinkfile const char *path = "test-dhclient-write-existing-multiline-duid.leases";
 
 	success = g_file_set_contents (path, ORIG_CONTENTS, -1, &error);
-	g_assert_no_error (error);
-	g_assert (success);
+	nmtst_assert_success (success, error);
 
-	/* Save new DUID and append old comments */
 	success = nm_dhcp_dhclient_save_duid (path, DUID, &error);
-	g_assert_no_error (error);
-	g_assert (success);
+	nmtst_assert_success (success, error);
 
-	/* reread original contents */
 	success = g_file_get_contents (path, &contents, NULL, &error);
-	g_assert_no_error (error);
-	g_assert (success);
+	nmtst_assert_success (success, error);
 
-	unlink (path);
 	g_assert_cmpstr (expected_contents, ==, contents);
-
-	g_free (contents);
 #undef ORIG_CONTENTS
 }
 
