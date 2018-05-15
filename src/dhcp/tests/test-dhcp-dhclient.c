@@ -855,7 +855,7 @@ test_write_existing_multiline_duid (void)
 	GError *error = NULL;
 	gs_free char *contents = NULL;
 	gboolean success;
-	nmtst_auto_unlinkfile const char *path = "test-dhclient-write-existing-multiline-duid.leases";
+	nmtst_auto_unlinkfile char *path = g_strdup ("test-dhclient-write-existing-multiline-duid.leases");
 
 	success = g_file_set_contents (path, ORIG_CONTENTS, -1, &error);
 	nmtst_assert_success (success, error);
