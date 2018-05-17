@@ -1159,6 +1159,12 @@ _public_ int n_acd_start(NAcd *acd, NAcdConfig *config) {
                 r = n_acd_schedule(acd, 0, 0);
                 if (r < 0)
                         goto error;
+
+                /*
+                 * Set a timeout multiplier from now so that announcements are
+                 * sent with one second delay.
+                 */
+                acd->timeout_multiplier = 4500;
         }
 
         acd->state = N_ACD_STATE_PROBING;
