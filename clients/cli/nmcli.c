@@ -945,6 +945,9 @@ nmc_cleanup (NmCli *nmc)
 int
 main (int argc, char *argv[])
 {
+	char *basename;
+	char *ifupdown[] = { "nmcli", "device", NULL, NULL, NULL };
+
 	/* Set locale to use environment variables */
 	setlocale (LC_ALL, "");
 
@@ -965,6 +968,23 @@ main (int argc, char *argv[])
 
 	g_unix_signal_add (SIGTERM, signal_handler, GINT_TO_POINTER (SIGTERM));
 	g_unix_signal_add (SIGINT, signal_handler, GINT_TO_POINTER (SIGINT));
+
+	basename = strrchr (argv[0], '/');
+	if (basename)
+		basename++;
+	else
+		basename = argv[0];
+	if (strcmp (basename, "ifup") == 0) {
+		ifupdown[2] = "connect";
+		ifupdown[3] = argv[1];
+		argv = ifupdown;
+		argc = 4;
+	} else if (strcmp (basename, "ifdown") == 0) {
+		ifupdown[2] = "disconnect";
+		ifupdown[3] = argv[1];
+		argv = ifupdown;
+		argc = 4;
+	}
 
 	if (process_command_line (&nm_cli, argc, argv))
 		g_main_loop_run (loop);
