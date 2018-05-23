@@ -632,29 +632,22 @@ add_plugin (NMSettings *self, NMSettingsPlugin *plugin)
 	return TRUE;
 }
 
-static GObject *
-find_plugin (GSList *list, const char *pname)
+static gboolean
+plugin_loaded (GSList *list, const char *path)
 {
 	GSList *iter;
-	GObject *obj = NULL;
 
-	g_return_val_if_fail (pname != NULL, NULL);
+	g_return_val_if_fail (path != NULL, TRUE);
 
-	for (iter = list; iter && !obj; iter = g_slist_next (iter)) {
-		NMSettingsPlugin *plugin = NM_SETTINGS_PLUGIN (iter->data);
-		char *list_pname = NULL;
+	for (iter = list; iter; iter = g_slist_next (iter)) {
+		const char *list_path = g_object_get_qdata (G_OBJECT (iter->data),
+		                                            plugin_module_path_quark ());
 
-		g_object_get (G_OBJECT (plugin),
-		              NM_SETTINGS_PLUGIN_NAME,
-		              &list_pname,
-		              NULL);
-		if (list_pname && !strcmp (pname, list_pname))
-			obj = G_OBJECT (plugin);
-
-		g_free (list_pname);
+		if (g_strcmp0 (path, list_path) == 0)
+			return TRUE;
 	}
 
-	return obj;
+	return FALSE;
 }
 
 static void
@@ -687,6 +680,8 @@ load_plugins (NMSettings *self, const char **plugins, GError **error)
 
 	for (iter = plugins; iter && *iter; iter++) {
 		const char *pname = *iter;
+		gs_free char *full_name = NULL;
+		gs_free char *path = NULL;
 		GObject *obj;
 
 		if (!*pname || strchr (pname, '/')) {
@@ -721,20 +716,18 @@ load_plugins (NMSettings *self, const char **plugins, GError **error)
 			continue;
 		}
 
-		if (find_plugin (list, pname))
+		full_name = g_strdup_printf ("nm-settings-plugin-%s", pname);
+		path = g_module_build_path (NMPLUGINDIR, full_name);
+
+		if (plugin_loaded (list, path))
 			continue;
 
 load_plugin:
 		{
 			GModule *plugin;
-			gs_free char *full_name = NULL;
-			gs_free char *path = NULL;
 			GObject * (*factory_func) (void);
 			struct stat st;
 			int errsv;
-
-			full_name = g_strdup_printf ("nm-settings-plugin-%s", pname);
-			path = g_module_build_path (NMPLUGINDIR, full_name);
 
 			if (stat (path, &st) != 0) {
 				errsv = errno;
