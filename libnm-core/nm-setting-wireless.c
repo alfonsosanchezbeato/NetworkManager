@@ -63,6 +63,8 @@ typedef struct {
 	gboolean hidden;
 	guint32 powersave;
 	NMSettingMacRandomization mac_address_randomization;
+	guint32 wowl;
+	char *wowl_password;
 } NMSettingWirelessPrivate;
 
 enum {
@@ -83,6 +85,8 @@ enum {
 	PROP_HIDDEN,
 	PROP_POWERSAVE,
 	PROP_MAC_ADDRESS_RANDOMIZATION,
+	PROP_WAKE_ON_WLAN,
+	PROP_WAKE_ON_WLAN_PASSWORD,
 
 	LAST_PROP
 };
@@ -885,6 +889,34 @@ verify (NMSetting *setting, NMConnection *connection, GError **error)
 		return FALSE;
 	}
 
+	if (   NM_FLAGS_ANY (priv->wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_EXCLUSIVE_FLAGS)
+	    && !nm_utils_is_power_of_two (priv->wowl)) {
+		g_set_error_literal (error,
+		                     NM_CONNECTION_ERROR,
+		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+		                     _("Wake-on-WLAN mode 'default' and 'ignore' are exclusive flags"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_WAKE_ON_WLAN);
+		return FALSE;
+	}
+
+	if (priv->wowl_password && !NM_FLAGS_HAS (priv->wowl, NM_SETTING_WIRELESS_WAKE_ON_WLAN_MAGIC)) {
+		g_set_error_literal (error,
+		                     NM_CONNECTION_ERROR,
+		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+		                     _("Wake-on-WLAN password can only be used with magic packet mode"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_WAKE_ON_WLAN);
+		return FALSE;
+	}
+
+	if (priv->wowl_password && !nm_utils_hwaddr_valid (priv->wowl_password, ETH_ALEN)) {
+		g_set_error_literal (error,
+		                     NM_CONNECTION_ERROR,
+		                     NM_CONNECTION_ERROR_INVALID_PROPERTY,
+		                     _("is not a valid MAC address"));
+		g_prefix_error (error, "%s.%s: ", NM_SETTING_WIRELESS_SETTING_NAME, NM_SETTING_WIRELESS_WAKE_ON_WLAN_PASSWORD);
+		return FALSE;
+	}
+
 	/* from here on, check for NM_SETTING_VERIFY_NORMALIZABLE conditions. */
 
 	if (priv->cloned_mac_address) {
@@ -937,6 +969,43 @@ nm_setting_wireless_get_security (NMSetting    *setting,
 		return g_variant_new_string (NM_SETTING_WIRELESS_SECURITY_SETTING_NAME);
 	else
 		return NULL;
+}
+
+/**
+ * nm_setting_wireless_get_wake_on_wlan:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns the Wake-on-WLAN options enabled for the connection
+ *
+ * Returns: the Wake-on-WLAN options
+ *
+ * Since: 1.12
+ */
+NMSettingWirelessWakeOnWLan
+nm_setting_wireless_get_wake_on_wlan (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NM_SETTING_WIRELESS_WAKE_ON_WLAN_NONE);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->wowl;
+}
+
+/**
+ * nm_setting_wireless_get_wake_on_wlan_password:
+ * @setting: the #NMSettingWireless
+ *
+ * Returns the Wake-on-WLAN password. This only applies to
+ * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_MAGIC.
+ *
+ * Returns: the Wake-on-WLAN setting password, or %NULL if there is no password.
+ *
+ * Since: 1.12
+ */
+const char *
+nm_setting_wireless_get_wake_on_wlan_password (NMSettingWireless *setting)
+{
+	g_return_val_if_fail (NM_IS_SETTING_WIRELESS (setting), NULL);
+
+	return NM_SETTING_WIRELESS_GET_PRIVATE (setting)->wowl_password;
 }
 
 static void
@@ -1061,6 +1130,13 @@ set_property (GObject *object, guint prop_id,
 	case PROP_MAC_ADDRESS_RANDOMIZATION:
 		priv->mac_address_randomization = g_value_get_uint (value);
 		break;
+	case PROP_WAKE_ON_WLAN:
+		priv->wowl = g_value_get_uint (value);
+		break;
+	case PROP_WAKE_ON_WLAN_PASSWORD:
+		g_free (priv->wowl_password);
+		priv->wowl_password = g_value_dup_string (value);
+		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
 		break;
@@ -1122,6 +1198,12 @@ get_property (GObject *object, guint prop_id,
 		break;
 	case PROP_MAC_ADDRESS_RANDOMIZATION:
 		g_value_set_uint (value, nm_setting_wireless_get_mac_address_randomization (setting));
+		break;
+	case PROP_WAKE_ON_WLAN:
+		g_value_set_uint (value, nm_setting_wireless_get_wake_on_wlan (setting));
+		break;
+	case PROP_WAKE_ON_WLAN_PASSWORD:
+		g_value_set_string (value, nm_setting_wireless_get_wake_on_wlan_password (setting));
 		break;
 	default:
 		G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1636,4 +1718,46 @@ nm_setting_wireless_class_init (NMSettingWirelessClass *setting_wireless_class)
 	_nm_setting_class_add_dbus_only_property (setting_class, "security",
 	                                          G_VARIANT_TYPE_STRING,
 	                                          nm_setting_wireless_get_security, NULL);
+
+	/**
+	 * NMSettingWireless:wake-on-wlan:
+	 *
+	 * The #NMSettingWirelessWakeOnWLan options to enable. Not all devices support all options.
+	 * May be any combination of %NM_SETTING_WIRELESS_WAKE_ON_WLAN_ANY,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_DISCONNECT,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_MAGIC,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_GTK_REKEY_FAILURE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_EAP_IDENTITY_REQUEST,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_4WAY_HANDSHAKE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_RFKILL_RELEASE,
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_TCP or the special values
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT (to use global settings) and
+	 * %NM_SETTING_WIRELESS_WAKE_ON_WLAN_IGNORE (to disable management of Wake-on-LAN in
+	 * NetworkManager).
+	 *
+	 * Since: 1.12
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_WAKE_ON_WLAN,
+		 g_param_spec_uint (NM_SETTING_WIRELESS_WAKE_ON_WLAN, "", "",
+		                    0, G_MAXUINT32, NM_SETTING_WIRELESS_WAKE_ON_WLAN_DEFAULT,
+		                    G_PARAM_CONSTRUCT |
+		                    G_PARAM_READWRITE |
+		                    G_PARAM_STATIC_STRINGS));
+
+	/**
+	 * NMSettingWireless:wake-on-wlan-password:
+	 *
+	 * If specified, the password used with magic-packet-based
+	 * Wake-on-WLAN, represented as a MAC address.  If %NULL,
+	 * no password will be required.
+	 *
+	 * Since: 1.12
+	 **/
+	g_object_class_install_property
+		(object_class, PROP_WAKE_ON_WLAN_PASSWORD,
+		 g_param_spec_string (NM_SETTING_WIRELESS_WAKE_ON_WLAN_PASSWORD, "", "",
+		                      NULL,
+		                      G_PARAM_READWRITE |
+		                      G_PARAM_STATIC_STRINGS));
 }
