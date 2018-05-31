@@ -8,6 +8,8 @@ Overview of changes since NetworkManager-1.10
   documentation. This represents a change in behavior since previous
   versions where the first character of the string was used as
   type. The internal client is not affected by the change.
+* Added wake_on_wlan and wake_on_wlan_password connection settings to
+  configure wake-on-wireless-lan (WoWLAN).
 
 ============================================
 NetworkManager-1.10
